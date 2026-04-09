@@ -448,11 +448,11 @@ function checkRocket() {
 // ── Update ───────────────────────────────────────────────────
 function update(dt) {
   // Move rocket
-  const moving = keys['ArrowLeft'] || keys['KeyA'] || mobileKeys.left;
-  const movingR = keys['ArrowRight'] || keys['KeyD'] || mobileKeys.right;
+  const movingLeft  = keys['ArrowLeft']  || keys['KeyA'] || mobileKeys.left;
+  const movingRight = keys['ArrowRight'] || keys['KeyD'] || mobileKeys.right;
 
-  if (moving)  rocket.x -= ROCKET_SPEED * dt;
-  if (movingR) rocket.x += ROCKET_SPEED * dt;
+  if (movingLeft)  rocket.x -= ROCKET_SPEED * dt;
+  if (movingRight) rocket.x += ROCKET_SPEED * dt;
   rocket.x = Math.max(ROCKET_W / 2, Math.min(W - ROCKET_W / 2, rocket.x));
 
   // Move laser
