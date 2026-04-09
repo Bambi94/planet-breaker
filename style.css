@@ -3,7 +3,7 @@
    Dark space theme inspired by Starlaunch / Bubble Trouble
    ====================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600&display=swap');
+/* Google Fonts are loaded via <link> tags in index.html — no @import needed */
 
 /* ---------- CSS Custom Properties ---------- */
 :root {
