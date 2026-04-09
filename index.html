@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Planet Breaker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD (shown during gameplay) -->
+    <div id="hud" class="hidden">
+      <div class="hud-group">
+        <span class="hud-label">LEVEL</span>
+        <span id="hud-level" class="hud-value">1</span>
+      </div>
+      <div class="hud-group hud-center">
+        <span class="hud-label">SCORE</span>
+        <span id="hud-score" class="hud-value">0</span>
+      </div>
+      <div class="hud-group hud-right">
+        <span class="hud-label">$STARS</span>
+        <span id="hud-balance" class="hud-value hud-stars">10,000</span>
+      </div>
+    </div>
+
+    <!-- Menu Screen -->
+    <div id="screen-menu" class="screen">
+      <div class="card">
+        <div class="logo-block">
+          <div class="logo-planet">🪐</div>
+          <h1 class="logo-title">PLANET BREAKER</h1>
+          <p class="logo-sub">Destroy the planets. Survive the chaos.</p>
+        </div>
+
+        <div class="info-card">
+          <div class="info-row">
+            <span class="info-label">Your Balance</span>
+            <span id="menu-balance" class="info-value stars-text">10,000 $STARS</span>
+          </div>
+          <div class="divider"></div>
+          <div class="info-row">
+            <span class="info-label">Entry Fee</span>
+            <span class="info-value danger-text">100 $STARS</span>
+          </div>
+        </div>
+
+        <button id="playBtn" class="btn-primary">
+          <span class="btn-main">PLAY NOW</span>
+          <span class="btn-note">Deducts 100 $STARS</span>
+        </button>
+
+        <p class="controls-hint">← → or A D to move &nbsp;·&nbsp; SPACE to shoot</p>
+      </div>
+    </div>
+
+    <!-- Level Up Screen -->
+    <div id="screen-levelup" class="screen hidden">
+      <div class="card compact">
+        <h2 class="title-success">LEVEL CLEAR!</h2>
+        <div id="levelup-info" class="bonus-display">
+          <span class="bonus-label">Bonus Earned</span>
+          <span id="levelup-bonus" class="bonus-value">+500 $STARS</span>
+        </div>
+        <button id="nextLevelBtn" class="btn-primary">NEXT LEVEL</button>
+      </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="screen-gameover" class="screen hidden">
+      <div class="card">
+        <h2 class="title-danger">GAME OVER</h2>
+
+        <div class="score-block">
+          <span class="score-sub-label">FINAL SCORE</span>
+          <span id="final-score" class="score-big">0</span>
+        </div>
+
+        <div class="info-card">
+          <div class="info-row">
+            <span class="info-label">Balance</span>
+            <span id="gameover-balance" class="info-value stars-text">9,900 $STARS</span>
+          </div>
+        </div>
+
+        <button id="restartBtn" class="btn-primary">PLAY AGAIN</button>
+      </div>
+    </div>
+
+    <!-- Mobile Controls -->
+    <div id="mobile-controls">
+      <button id="btn-left" class="mob-btn">&#9664;</button>
+      <button id="btn-fire" class="mob-btn mob-fire">FIRE</button>
+      <button id="btn-right" class="mob-btn">&#9654;</button>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
