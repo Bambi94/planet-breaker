@@ -42,6 +42,15 @@ const POWERUP_DEFS = [
   { type: 'extraShot', weight: 20, color: '#a855f7', glow: '#9933ff', symbol: '➕' },
 ];
 
+// Purchasable power-ups (pre-game shop)
+const MAX_PURCHASED_SLOTS = 3;
+const PURCHASABLE_POWERUPS = [
+  { type: 'shield',    name: 'Shield',     icon: '🛡', cost: 150, color: '#4d8fff' },
+  { type: 'time',      name: 'Time Refill',icon: '⏱', cost: 120, color: '#00e87a' },
+  { type: 'permLaser', name: 'Perm Laser', icon: '⬆', cost: 200, color: '#ff3f55' },
+  { type: 'extraShot', name: '+1 Shot',    icon: '➕', cost: 180, color: '#a855f7' },
+];
+
 const SIZES = {
   large:  { r: 42, speedX: 2.6, speedY: 2.8, score: 50,  next: 'medium' },
   medium: { r: 25, speedX: 3.5, speedY: 3.8, score: 100, next: 'small'  },
@@ -87,6 +96,10 @@ let speedBoostTime  = 0;      // seconds remaining
 let transitionTimer = 0;      // frames remaining in auto-transition
 let floatingTexts   = [];     // notification pop-ups
 
+// Purchased power-up slots (pre-game shop)
+let purchasedSlots  = [null, null, null]; // each: { type, name, icon, cost, color } or null
+let activeGameSlots = [null, null, null]; // in-game copies, consumed on activation
+
 // ── Bootstrap ───────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', boot);
 
@@ -104,15 +117,39 @@ function boot() {
   window.addEventListener('keydown', e => {
     keys[e.code] = true;
     if (e.code === 'Space') { e.preventDefault(); tryShoot(); }
+    // Power-up activation: keys 1, 2, 3
+    if (gameState === 'playing') {
+      if (e.code === 'Digit1') activateGameSlot(0);
+      if (e.code === 'Digit2') activateGameSlot(1);
+      if (e.code === 'Digit3') activateGameSlot(2);
+    }
   });
   window.addEventListener('keyup', e => { keys[e.code] = false; });
 
   // Buttons
-  document.getElementById('playBtn').addEventListener('click', startGame);
+  document.getElementById('playBtn').addEventListener('click', openPurchaseScreen);
+  document.getElementById('startRunBtn').addEventListener('click', startGame);
   document.getElementById('restartBtn').addEventListener('click', returnToMenu);
 
   // Mobile controls
   setupMobile();
+
+  // In-game power-up slot buttons (mobile tap / click)
+  document.querySelectorAll('#powerup-slots .pu-slot-btn').forEach(btn => {
+    const idx = parseInt(btn.dataset.slot, 10);
+    btn.addEventListener('touchstart', e => { e.preventDefault(); activateGameSlot(idx); }, { passive: false });
+    btn.addEventListener('click', () => activateGameSlot(idx));
+  });
+
+  // Purchase screen: slot click to remove
+  document.querySelectorAll('#purchase-slots .purchase-slot').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.slot, 10);
+      removePurchasedSlot(idx);
+    });
+  });
+
+  buildPurchaseGrid();
 
   updateMenuBalance();
   showScreen('menu');
@@ -161,11 +198,19 @@ function buildRocket() {
 
 // ── Screen Management ───────────────────────────────────────
 function showScreen(name) {
-  ['menu', 'gameover'].forEach(s => {
+  ['menu', 'purchase', 'gameover'].forEach(s => {
     document.getElementById(`screen-${s}`).classList.toggle('hidden', s !== name);
   });
   const showHud = (name === 'playing' || name === 'transition');
   document.getElementById('hud').classList.toggle('hidden', !showHud);
+
+  // Show in-game power-up slots during gameplay
+  const slotsEl = document.getElementById('powerup-slots');
+  if (showHud) {
+    slotsEl.classList.add('visible');
+  } else {
+    slotsEl.classList.remove('visible');
+  }
 }
 
 // ── Balance Display ─────────────────────────────────────────
@@ -201,10 +246,105 @@ function initLevelTimer() {
 }
 
 // ── Game Flow ────────────────────────────────────────────────
-function startGame() {
+
+// Open purchase screen (replaces direct startGame from menu)
+function openPurchaseScreen() {
   if (balance < ENTRY_FEE) return;
+  // Deduct entry fee immediately
   balance   -= ENTRY_FEE;
   displayBal = balance;
+  // Reset purchased slots
+  purchasedSlots = [null, null, null];
+  renderPurchaseSlots();
+  updatePurchaseBalance();
+  updatePurchaseGrid();
+  showScreen('purchase');
+}
+
+function buildPurchaseGrid() {
+  const grid = document.getElementById('purchase-grid');
+  grid.innerHTML = '';
+  for (const pu of PURCHASABLE_POWERUPS) {
+    const el = document.createElement('div');
+    el.className = 'purchase-item';
+    el.dataset.type = pu.type;
+    el.innerHTML =
+      `<span class="purchase-item-icon">${pu.icon}</span>` +
+      `<div class="purchase-item-info">` +
+        `<span class="purchase-item-name">${pu.name}</span>` +
+        `<span class="purchase-item-cost">${pu.cost} ★</span>` +
+      `</div>`;
+    el.addEventListener('click', () => buyPowerUp(pu));
+    grid.appendChild(el);
+  }
+}
+
+function buyPowerUp(pu) {
+  // Find first empty slot
+  const idx = purchasedSlots.indexOf(null);
+  if (idx === -1) return; // all 3 slots full
+  if (balance < pu.cost) return; // can't afford
+  balance -= pu.cost;
+  displayBal = balance;
+  purchasedSlots[idx] = { ...pu };
+  renderPurchaseSlots();
+  updatePurchaseBalance();
+  updatePurchaseGrid();
+}
+
+function removePurchasedSlot(idx) {
+  const slot = purchasedSlots[idx];
+  if (!slot) return;
+  balance += slot.cost;
+  displayBal = balance;
+  purchasedSlots[idx] = null;
+  renderPurchaseSlots();
+  updatePurchaseBalance();
+  updatePurchaseGrid();
+}
+
+function renderPurchaseSlots() {
+  const slotEls = document.querySelectorAll('#purchase-slots .purchase-slot');
+  slotEls.forEach((el, i) => {
+    const slot = purchasedSlots[i];
+    if (slot) {
+      el.className = 'purchase-slot filled';
+      el.innerHTML =
+        `<span class="purchase-slot-icon">${slot.icon}</span>` +
+        `<span class="purchase-slot-name">${slot.name}</span>`;
+    } else {
+      el.className = 'purchase-slot';
+      el.innerHTML = '<span class="purchase-slot-empty">+</span>';
+    }
+  });
+}
+
+function updatePurchaseBalance() {
+  const el = document.getElementById('purchase-balance');
+  if (el) el.textContent = `${balance.toLocaleString()} $STARS`;
+  // Also update menu balance for consistency
+  updateMenuBalance();
+}
+
+function updatePurchaseGrid() {
+  const filledCount = purchasedSlots.filter(s => s !== null).length;
+  const items = document.querySelectorAll('#purchase-grid .purchase-item');
+  items.forEach(el => {
+    const type = el.dataset.type;
+    const pu = PURCHASABLE_POWERUPS.find(p => p.type === type);
+    const cantAfford = balance < pu.cost;
+    const slotsFull = filledCount >= MAX_PURCHASED_SLOTS;
+    if (cantAfford || slotsFull) {
+      el.classList.add('disabled');
+    } else {
+      el.classList.remove('disabled');
+    }
+  });
+}
+
+function startGame() {
+  // Copy purchased slots into active game slots
+  activeGameSlots = purchasedSlots.map(s => s ? { ...s } : null);
   score      = 0;
   level      = 1;
   hasShield       = false;
@@ -218,7 +358,55 @@ function startGame() {
   initLevelTimer();
   gameState = 'playing';
   showScreen('playing');
+  updateGameSlotUI();
   updateHUD();
+}
+
+// ── In-Game Power-Up Slot Activation ────────────────────────
+function activateGameSlot(idx) {
+  if (gameState !== 'playing') return;
+  const slot = activeGameSlots[idx];
+  if (!slot) return;
+
+  switch (slot.type) {
+    case 'shield':
+      hasShield = true;
+      showFloatingText('SHIELD!', slot.color);
+      break;
+    case 'time':
+      levelTimer = Math.min(levelTimer + POWERUP_TIME_BONUS, levelTimerMax + 10);
+      showFloatingText('+' + POWERUP_TIME_BONUS + 's', slot.color);
+      break;
+    case 'permLaser':
+      permLaserActive = true;
+      showFloatingText('PERM LASER!', slot.color);
+      break;
+    case 'extraShot':
+      extraShots++;
+      showFloatingText('+1 SHOT!', slot.color);
+      break;
+  }
+
+  // Consume the slot (level-long effects remain active, but the slot is used up)
+  activeGameSlots[idx] = null;
+  updateGameSlotUI();
+}
+
+function updateGameSlotUI() {
+  const btns = document.querySelectorAll('#powerup-slots .pu-slot-btn');
+  btns.forEach((btn, i) => {
+    const slot = activeGameSlots[i];
+    const iconEl = btn.querySelector('.pu-slot-icon');
+    if (slot) {
+      btn.classList.remove('empty');
+      btn.classList.add('filled');
+      iconEl.textContent = slot.icon;
+    } else {
+      btn.classList.remove('filled');
+      btn.classList.add('empty');
+      iconEl.textContent = '';
+    }
+  });
 }
 
 function autoNextLevel() {
@@ -228,11 +416,13 @@ function autoNextLevel() {
   extraShots      = 0;
   speedBoostTime  = 0;
   powerUpDrops    = [];
+  // Keep activeGameSlots — unused purchased power-ups carry across levels
   buildRocket();
   spawnLevel();
   initLevelTimer();
   gameState = 'playing';
   showScreen('playing');
+  updateGameSlotUI();
   updateHUD();
 }
 
@@ -247,6 +437,8 @@ function returnToMenu() {
   extraShots      = 0;
   hasShield       = false;
   speedBoostTime  = 0;
+  activeGameSlots = [null, null, null];
+  purchasedSlots  = [null, null, null];
   showScreen('menu');
   updateMenuBalance();
   document.getElementById('playBtn').disabled = balance < ENTRY_FEE;
