@@ -16,9 +16,9 @@ const LASER_W       = 5;      // beam half-width for hit tests
 const ENTRY_FEE     = 100;
 
 // Timer
-const BASE_LEVEL_TIME  = 45;   // seconds for level 1
-const TIME_DECREMENT   = 2;    // seconds less per level
-const MIN_LEVEL_TIME   = 25;   // floor
+const BASE_LEVEL_TIME  = 45;   // seconds for levels 1-3
+const TIME_INCREMENT   = 3;    // extra seconds per level beyond 3
+const MAX_LEVEL_TIME   = 60;   // ceiling
 
 // Power-ups
 const POWERUP_DROP_CHANCE = 0.18;
@@ -31,10 +31,11 @@ const SPEED_BOOST_MULT    = 1.8;
 const TRANSITION_DURATION = 120;  // frames (~2 s at 60 fps)
 
 const POWERUP_DEFS = [
-  { type: 'time',   weight: 30, color: '#00e87a', glow: '#00ff88', symbol: '⏱' },
-  { type: 'shield', weight: 25, color: '#4d8fff', glow: '#2288ff', symbol: '🛡' },
-  { type: 'speed',  weight: 20, color: '#ffcc00', glow: '#ffaa00', symbol: '⚡' },
-  { type: 'wire',   weight: 25, color: '#ff3f55', glow: '#ff0033', symbol: '✂' },
+  { type: 'time',      weight: 30, color: '#00e87a', glow: '#00ff88', symbol: '⏱' },
+  { type: 'shield',    weight: 25, color: '#4d8fff', glow: '#2288ff', symbol: '🛡' },
+  { type: 'speed',     weight: 20, color: '#ffcc00', glow: '#ffaa00', symbol: '⚡' },
+  { type: 'permLaser', weight: 20, color: '#ff3f55', glow: '#ff0033', symbol: '⬆' },
+  { type: 'extraShot', weight: 15, color: '#a855f7', glow: '#9933ff', symbol: '➕' },
 ];
 
 const SIZES = {
@@ -61,7 +62,7 @@ let score      = 0;
 let level      = 1;
 
 let planets    = [];
-let laser      = null;
+let lasers     = [];
 let rocket     = { x: 0, y: 0 };
 let particles  = [];
 let bgStars    = [];
@@ -76,7 +77,8 @@ let levelTimer      = 0;      // seconds remaining
 let levelTimerMax   = 0;      // max for current level
 let powerUpDrops    = [];     // falling PowerUp objects
 let hasShield       = false;
-let barbedWire      = null;   // { active: true } or null
+let permLaserActive = false;  // permanent-laser power-up active this level
+let extraShots      = 0;      // +1 power-up stacks (resets each level)
 let speedBoostTime  = 0;      // seconds remaining
 let transitionTimer = 0;      // frames remaining in auto-transition
 let floatingTexts   = [];     // notification pop-ups
@@ -169,7 +171,8 @@ function updateMenuBalance() {
 }
 
 function getLevelTime(lvl) {
-  return Math.max(MIN_LEVEL_TIME, BASE_LEVEL_TIME - (lvl - 1) * TIME_DECREMENT);
+  if (lvl <= 3) return BASE_LEVEL_TIME;
+  return Math.min(BASE_LEVEL_TIME + (lvl - 3) * TIME_INCREMENT, MAX_LEVEL_TIME);
 }
 
 function updateHUD() {
@@ -200,11 +203,12 @@ function startGame() {
   displayBal = balance;
   score      = 0;
   level      = 1;
-  hasShield  = false;
-  barbedWire = null;
-  speedBoostTime = 0;
-  powerUpDrops   = [];
-  floatingTexts  = [];
+  hasShield       = false;
+  permLaserActive = false;
+  extraShots      = 0;
+  speedBoostTime  = 0;
+  powerUpDrops    = [];
+  floatingTexts   = [];
   buildRocket();
   spawnLevel();
   initLevelTimer();
@@ -215,10 +219,11 @@ function startGame() {
 
 function autoNextLevel() {
   level++;
-  hasShield      = false;   // reset per-level (keep if you prefer persistence)
-  barbedWire     = null;
-  speedBoostTime = 0;
-  powerUpDrops   = [];
+  hasShield       = false;   // reset per-level
+  permLaserActive = false;
+  extraShots      = 0;
+  speedBoostTime  = 0;
+  powerUpDrops    = [];
   buildRocket();
   spawnLevel();
   initLevelTimer();
@@ -230,13 +235,14 @@ function autoNextLevel() {
 function returnToMenu() {
   gameState = 'menu';
   planets   = [];
-  laser     = null;
+  lasers    = [];
   particles = [];
-  powerUpDrops  = [];
-  floatingTexts = [];
-  barbedWire    = null;
-  hasShield     = false;
-  speedBoostTime = 0;
+  powerUpDrops    = [];
+  floatingTexts   = [];
+  permLaserActive = false;
+  extraShots      = 0;
+  hasShield       = false;
+  speedBoostTime  = 0;
   showScreen('menu');
   updateMenuBalance();
   document.getElementById('playBtn').disabled = balance < ENTRY_FEE;
@@ -244,7 +250,7 @@ function returnToMenu() {
 
 function triggerGameOver() {
   gameState = 'gameover';
-  laser     = null;
+  lasers    = [];
   document.getElementById('final-score').textContent = score.toLocaleString();
   showScreen('gameover');
   document.getElementById('restartBtn').disabled = balance < ENTRY_FEE;
@@ -253,7 +259,7 @@ function triggerGameOver() {
 function triggerLevelClear() {
   // No STARS bonus — just score + progression
   gameState       = 'transition';
-  laser           = null;
+  lasers          = [];
   transitionTimer = TRANSITION_DURATION;
   showScreen('playing');  // keep HUD visible during transition
 }
@@ -261,7 +267,7 @@ function triggerLevelClear() {
 // ── Level / Planet Spawning ──────────────────────────────────
 function spawnLevel() {
   planets   = [];
-  laser     = null;
+  lasers    = [];
   particles = [];
 
   const numLarge  = Math.min(1 + Math.floor((level - 1) / 2), 4);
@@ -284,8 +290,27 @@ function spawnLevel() {
 
 // ── Shooting ────────────────────────────────────────────────
 function tryShoot() {
-  if (gameState !== 'playing' || laser) return;
-  laser = { x: rocket.x, tipY: rocket.y - ROCKET_H / 2 };
+  if (gameState !== 'playing') return;
+
+  const maxShots = 1 + extraShots;
+
+  // If at max capacity, evict the oldest permanent laser to make room
+  if (lasers.length >= maxShots) {
+    const permIdx = lasers.findIndex(l => l.permanent);
+    if (permIdx !== -1) {
+      lasers.splice(permIdx, 1);
+    } else {
+      return;   // all slots occupied by normal lasers — can't fire
+    }
+  }
+
+  if (permLaserActive) {
+    // Anchored beam from rocket position to ceiling
+    lasers.push({ x: rocket.x, tipY: 0, permanent: true });
+  } else {
+    // Normal upward-moving laser
+    lasers.push({ x: rocket.x, tipY: rocket.y - ROCKET_H / 2, permanent: false });
+  }
 }
 
 // ── Planet Class ─────────────────────────────────────────────
@@ -522,9 +547,13 @@ function collectPowerUp(pu) {
       speedBoostTime = SPEED_BOOST_SEC;
       showFloatingText('SPEED!', pu.color);
       break;
-    case 'wire':
-      barbedWire = { active: true };
-      showFloatingText('BARBED WIRE!', pu.color);
+    case 'permLaser':
+      permLaserActive = true;
+      showFloatingText('PERM LASER!', pu.color);
+      break;
+    case 'extraShot':
+      extraShots++;
+      showFloatingText('+1 SHOT!', pu.color);
       break;
   }
 }
@@ -591,28 +620,29 @@ function setupMobile() {
 }
 
 // ── Collision Detection ───────────────────────────────────────
-function checkLaser() {
-  if (!laser) return;
+function checkLasers() {
+  for (let li = lasers.length - 1; li >= 0; li--) {
+    const las = lasers[li];
+    let best = null, bestY = -Infinity;
 
-  let best = null, bestY = -Infinity;
+    for (const p of planets) {
+      const dx = Math.abs(p.x - las.x);
+      if (dx > p.r + LASER_W) continue;
+      if (las.tipY > p.y + p.r) continue;
+      if (p.y > bestY) { bestY = p.y; best = p; }
+    }
 
-  for (const p of planets) {
-    const dx = Math.abs(p.x - laser.x);
-    if (dx > p.r + LASER_W) continue;
-    if (laser.tipY > p.y + p.r) continue;
-    if (p.y > bestY) { bestY = p.y; best = p; }
-  }
-
-  if (best) {
-    spawnParticles(best.x, best.y, best.pal.glow, 14);
-    maybeSpawnPowerUp(best.x, best.y);
-    const children = best.split();
-    planets = planets.filter(p => p !== best);
-    planets.push(...children);
-    score += SIZES[best.size].score;
-    laser = null;
-    flashTimer = 6;
-    updateHUD();
+    if (best) {
+      spawnParticles(best.x, best.y, best.pal.glow, 14);
+      maybeSpawnPowerUp(best.x, best.y);
+      const children = best.split();
+      planets = planets.filter(p => p !== best);
+      planets.push(...children);
+      score += SIZES[best.size].score;
+      lasers.splice(li, 1);
+      flashTimer = 6;
+      updateHUD();
+    }
   }
 }
 
@@ -662,31 +692,6 @@ function checkPowerUpCollection() {
   });
 }
 
-function checkBarbedWire() {
-  if (!barbedWire || !barbedWire.active) return;
-
-  const wireY = 6;  // wire sits at very top
-
-  for (let i = planets.length - 1; i >= 0; i--) {
-    const p = planets[i];
-    if (p.y - p.r <= wireY) {
-      // Planet touches the wire — destroy/split it
-      spawnParticles(p.x, p.y, p.pal.glow, 14);
-      spawnParticles(p.x, wireY, '#ff3f55', 10);
-      const children = p.split();
-      planets.splice(i, 1);
-      planets.push(...children);
-      score += SIZES[p.size].score;
-      flashTimer = 6;
-
-      // Wire is consumed after one hit
-      barbedWire = null;
-      showFloatingText('WIRE HIT!', '#ff3f55');
-      updateHUD();
-      return;
-    }
-  }
-}
 
 // ── Update ───────────────────────────────────────────────────
 function update(dt, realSec) {
@@ -713,14 +718,12 @@ function update(dt, realSec) {
     if (speedBoostTime < 0) speedBoostTime = 0;
   }
 
-  // Move laser
-  if (laser) {
-    laser.tipY -= LASER_SPEED * dt;
-    if (barbedWire && laser.tipY < 6) {
-      // Laser hits wire — that's fine, just let it pass through
-    }
-    if (laser && laser.tipY < 0) laser = null;
-  }
+  // Move normal lasers; permanent lasers stay put
+  lasers = lasers.filter(las => {
+    if (las.permanent) return true;   // anchored — don't move, don't expire by position
+    las.tipY -= LASER_SPEED * dt;
+    return las.tipY >= 0;             // remove when it leaves the top
+  });
 
   // Update planets
   for (const p of planets) p.update(dt);
@@ -735,8 +738,7 @@ function update(dt, realSec) {
   updateFloatingTexts(dt);
 
   // Check collisions
-  checkLaser();
-  checkBarbedWire();
+  checkLasers();
   if (gameState === 'playing') {
     checkRocket();
     checkPowerUpCollection();
@@ -775,13 +777,10 @@ function draw(ts) {
       ctx.restore();
     }
 
-    // Barbed wire
-    if (barbedWire && barbedWire.active) drawBarbedWire();
-
     for (const p of particles) p.draw(ctx);
     for (const p of planets)   p.draw(ctx);
     for (const pu of powerUpDrops) pu.draw(ctx);
-    if (laser) drawLaser();
+    for (const las of lasers) drawLaser(las);
 
     if (gameState === 'playing') {
       drawRocket();
@@ -846,49 +845,93 @@ function drawGround() {
   ctx.restore();
 }
 
-function drawLaser() {
-  const x  = laser.x;
-  const y0 = laser.tipY;
-  const y1 = rocket.y - ROCKET_H / 2;
+function drawLaser(las) {
+  const x  = las.x;
+  const y0 = las.tipY;
+  const y1 = las.permanent ? (H - GROUND_H) : (rocket.y - ROCKET_H / 2);
 
   ctx.save();
 
-  ctx.beginPath();
-  ctx.moveTo(x, y0);
-  ctx.lineTo(x, y1);
-  ctx.strokeStyle = 'rgba(255,80,80,0.25)';
-  ctx.lineWidth   = 14;
-  ctx.lineCap     = 'round';
-  ctx.stroke();
+  if (las.permanent) {
+    // ── Permanent laser: wide red/pink anchored beam ──
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.strokeStyle = 'rgba(255,63,85,0.18)';
+    ctx.lineWidth   = 18;
+    ctx.lineCap     = 'round';
+    ctx.stroke();
 
-  const lg = ctx.createLinearGradient(0, y0, 0, y1);
-  lg.addColorStop(0,   '#ff3333');
-  lg.addColorStop(0.4, '#ff6644');
-  lg.addColorStop(1,   'rgba(255,80,60,0.15)');
+    const pg = ctx.createLinearGradient(0, y0, 0, y1);
+    pg.addColorStop(0,   '#ff3355');
+    pg.addColorStop(0.5, '#ff6688');
+    pg.addColorStop(1,   '#ff3355');
 
-  ctx.beginPath();
-  ctx.moveTo(x, y0);
-  ctx.lineTo(x, y1);
-  ctx.strokeStyle = lg;
-  ctx.lineWidth   = 4;
-  ctx.shadowBlur  = 16;
-  ctx.shadowColor = '#ff3333';
-  ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.strokeStyle = pg;
+    ctx.lineWidth   = 5;
+    ctx.shadowBlur  = 22;
+    ctx.shadowColor = '#ff3355';
+    ctx.stroke();
 
-  ctx.beginPath();
-  ctx.moveTo(x, y0);
-  ctx.lineTo(x, y1);
-  ctx.strokeStyle = 'rgba(255,220,220,0.9)';
-  ctx.lineWidth   = 1.5;
-  ctx.shadowBlur  = 0;
-  ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.strokeStyle = 'rgba(255,200,200,0.85)';
+    ctx.lineWidth   = 1.5;
+    ctx.shadowBlur  = 0;
+    ctx.stroke();
 
-  ctx.beginPath();
-  ctx.arc(x, y0, 5, 0, Math.PI * 2);
-  ctx.fillStyle   = '#ff6666';
-  ctx.shadowBlur  = 20;
-  ctx.shadowColor = '#ff0000';
-  ctx.fill();
+    // Pulse glow at top and bottom
+    for (const py of [y0 + 4, y1 - 4]) {
+      ctx.beginPath();
+      ctx.arc(x, py, 6, 0, Math.PI * 2);
+      ctx.fillStyle   = '#ff6688';
+      ctx.shadowBlur  = 24;
+      ctx.shadowColor = '#ff0033';
+      ctx.fill();
+    }
+  } else {
+    // ── Normal laser (original style) ──
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.strokeStyle = 'rgba(255,80,80,0.25)';
+    ctx.lineWidth   = 14;
+    ctx.lineCap     = 'round';
+    ctx.stroke();
+
+    const lg = ctx.createLinearGradient(0, y0, 0, y1);
+    lg.addColorStop(0,   '#ff3333');
+    lg.addColorStop(0.4, '#ff6644');
+    lg.addColorStop(1,   'rgba(255,80,60,0.15)');
+
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.strokeStyle = lg;
+    ctx.lineWidth   = 4;
+    ctx.shadowBlur  = 16;
+    ctx.shadowColor = '#ff3333';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.strokeStyle = 'rgba(255,220,220,0.9)';
+    ctx.lineWidth   = 1.5;
+    ctx.shadowBlur  = 0;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y0, 5, 0, Math.PI * 2);
+    ctx.fillStyle   = '#ff6666';
+    ctx.shadowBlur  = 20;
+    ctx.shadowColor = '#ff0000';
+    ctx.fill();
+  }
 
   ctx.restore();
 }
@@ -1037,43 +1080,6 @@ function drawSpeedTrail() {
   ctx.restore();
 }
 
-function drawBarbedWire() {
-  ctx.save();
-  const wireY = 6;
-
-  // Main wire line
-  ctx.beginPath();
-  ctx.moveTo(0, wireY);
-  ctx.lineTo(W, wireY);
-  ctx.strokeStyle = '#ff3f55';
-  ctx.lineWidth   = 2;
-  ctx.shadowBlur  = 10;
-  ctx.shadowColor = '#ff0033';
-  ctx.stroke();
-
-  // Barbs (zigzag)
-  ctx.beginPath();
-  const step = 20;
-  for (let x = 0; x < W; x += step) {
-    const peakY = (x / step) % 2 === 0 ? wireY - 6 : wireY + 6;
-    ctx.lineTo(x, peakY);
-  }
-  ctx.strokeStyle = '#ff3f55';
-  ctx.lineWidth   = 1.5;
-  ctx.shadowBlur  = 6;
-  ctx.stroke();
-
-  // Glow
-  ctx.beginPath();
-  ctx.moveTo(0, wireY);
-  ctx.lineTo(W, wireY);
-  ctx.strokeStyle = 'rgba(255,63,85,0.25)';
-  ctx.lineWidth   = 12;
-  ctx.shadowBlur  = 0;
-  ctx.stroke();
-
-  ctx.restore();
-}
 
 function drawTransition() {
   const progress = 1 - (transitionTimer / TRANSITION_DURATION);
