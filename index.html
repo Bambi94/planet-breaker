@@ -979,10 +979,9 @@ function checkBarbedWire() {
 }
 
 // ── Update ───────────────────────────────────────────────────
-function update(dt) {
-  // ── Timer countdown (real seconds, not frame-time)
-  const dtSec = dt / 60;  // dt is in frames (~1 = 1/60s)
-  levelTimer -= dtSec;
+function update(dt, realSec) {
+  // ── Timer countdown using real elapsed seconds (framerate-independent)
+  levelTimer -= realSec;
   if (levelTimer <= 0) {
     levelTimer = 0;
     triggerGameOver();
@@ -998,9 +997,9 @@ function update(dt) {
   if (movingRight) rocket.x += ROCKET_SPEED * speedMult * dt;
   rocket.x = Math.max(ROCKET_W / 2, Math.min(W - ROCKET_W / 2, rocket.x));
 
-  // Speed boost countdown
+  // Speed boost countdown (real seconds)
   if (speedBoostTime > 0) {
-    speedBoostTime -= dtSec;
+    speedBoostTime -= realSec;
     if (speedBoostTime < 0) speedBoostTime = 0;
   }
 
@@ -1397,12 +1396,14 @@ function drawTransition() {
 
 // ── Main Loop ────────────────────────────────────────────────
 function loop(ts) {
-  const rawDt = (ts - lastTime) / 16.667;
-  const dt    = Math.min(rawDt, 4);
-  lastTime    = ts;
+  const elapsedMs = ts - lastTime;            // real milliseconds since last frame
+  const rawDt     = elapsedMs / 16.667;       // normalised to 60-fps frame units
+  const dt        = Math.min(rawDt, 4);       // cap to avoid spiral-of-death
+  const realSec   = Math.min(elapsedMs / 1000, 0.25); // real seconds, capped at 250 ms
+  lastTime        = ts;
 
   if (gameState === 'playing') {
-    update(dt);
+    update(dt, realSec);
   } else if (gameState === 'transition') {
     // Count down transition timer
     transitionTimer -= dt;
