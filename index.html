@@ -311,7 +311,8 @@ const TIME_INCREMENT   = 3;    // extra seconds per level beyond 3
 const MAX_LEVEL_TIME   = 60;   // ceiling
 
 // Power-ups
-// Power-up drop chance scales with level (fewer early, more later)
+// Power-up drop chance per planet destroy — decreases with level
+// to compensate for more planets, keeping total drops ~1-2 per level
 function getDropChance() {
   return Math.max(0.06, 0.16 - (level - 1) * 0.012);
 }
