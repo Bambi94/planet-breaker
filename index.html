@@ -268,7 +268,7 @@
 
     /* ---------- In-Game Power-Up Slots ---------- */
     #powerup-slots {
-      position: absolute; top: 56px; right: 20px;
+      position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
       z-index: 15; display: none; gap: 8px; pointer-events: auto;
     }
     #powerup-slots.visible { display: flex; }
@@ -290,9 +290,9 @@
     .pu-slot-btn.empty { opacity: 0.3; cursor: default; }
     .pu-slot-btn.empty .pu-slot-icon::after { content: '·'; }
 
-    /* On mobile, center power-ups at top below HUD */
-    @media (pointer: coarse) {
-      #powerup-slots { top: 52px; right: auto; left: 50%; transform: translateX(-50%); }
+    /* On desktop, align power-ups to the top-right */
+    @media (pointer: fine) {
+      #powerup-slots { left: auto; transform: none; right: 20px; }
     }
 
     /* ---------- Utility ---------- */
