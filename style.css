@@ -391,5 +391,17 @@ html, body {
   box-shadow: 0 0 14px rgba(255,63,85,0.4);
 }
 
+/* ---------- Timer Warning ---------- */
+.hud-timer-warn {
+  color: var(--danger) !important;
+  text-shadow: 0 0 12px rgba(255,63,85,0.8) !important;
+  animation: timerPulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes timerPulse {
+  from { opacity: 1; }
+  to   { opacity: 0.6; }
+}
+
 /* ---------- Utility ---------- */
 .hidden { display: none !important; }
