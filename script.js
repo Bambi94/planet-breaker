@@ -21,7 +21,10 @@ const TIME_INCREMENT   = 3;    // extra seconds per level beyond 3
 const MAX_LEVEL_TIME   = 60;   // ceiling
 
 // Power-ups
-const POWERUP_DROP_CHANCE = 0.18;
+// Power-up drop chance scales with level (fewer early, more later)
+function getDropChance() {
+  return Math.max(0.06, 0.16 - (level - 1) * 0.012);
+}
 const POWERUP_RADIUS      = 14;
 const POWERUP_FALL_SPEED  = 1.8;
 const POWERUP_TIME_BONUS  = 8;    // seconds added
@@ -31,17 +34,17 @@ const SPEED_BOOST_MULT    = 1.8;
 const TRANSITION_DURATION = 120;  // frames (~2 s at 60 fps)
 
 const POWERUP_DEFS = [
-  { type: 'time',      weight: 30, color: '#00e87a', glow: '#00ff88', symbol: '⏱' },
-  { type: 'shield',    weight: 25, color: '#4d8fff', glow: '#2288ff', symbol: '🛡' },
+  { type: 'time',      weight: 20, color: '#00e87a', glow: '#00ff88', symbol: '⏱' },
+  { type: 'shield',    weight: 20, color: '#4d8fff', glow: '#2288ff', symbol: '🛡' },
   { type: 'speed',     weight: 20, color: '#ffcc00', glow: '#ffaa00', symbol: '⚡' },
   { type: 'permLaser', weight: 20, color: '#ff3f55', glow: '#ff0033', symbol: '⬆' },
-  { type: 'extraShot', weight: 15, color: '#a855f7', glow: '#9933ff', symbol: '➕' },
+  { type: 'extraShot', weight: 20, color: '#a855f7', glow: '#9933ff', symbol: '➕' },
 ];
 
 const SIZES = {
-  large:  { r: 42, speedX: 2.6, speedY: 2.8, score: 100, next: 'medium' },
-  medium: { r: 25, speedX: 3.5, speedY: 3.8, score: 200, next: 'small'  },
-  small:  { r: 14, speedX: 5.0, speedY: 5.2, score: 400, next: null     }
+  large:  { r: 42, speedX: 2.6, speedY: 2.8, score: 50,  next: 'medium' },
+  medium: { r: 25, speedX: 3.5, speedY: 3.8, score: 100, next: 'small'  },
+  small:  { r: 14, speedX: 5.0, speedY: 5.2, score: 200, next: null     }
 };
 
 const PLANET_PALETTES = [
@@ -270,20 +273,21 @@ function spawnLevel() {
   lasers    = [];
   particles = [];
 
-  const numLarge  = Math.min(1 + Math.floor((level - 1) / 2), 4);
-  const numMedium = level >= 4 ? Math.min(Math.floor((level - 3) / 2) + 1, 3) : 0;
+  // Smoother difficulty curve: at most +1 entity per level
+  const numLarge  = Math.min(1 + Math.floor(level / 3), 4);
+  const numMedium = level >= 5 ? Math.min(Math.floor((level - 4) / 3) + 1, 3) : 0;
 
   for (let i = 0; i < numLarge; i++) {
     const x  = (W / (numLarge + 1)) * (i + 1);
-    const vx = (Math.random() < 0.5 ? 1 : -1) * (SIZES.large.speedX + (level - 1) * 0.15);
-    const vy = -(SIZES.large.speedY + (level - 1) * 0.1);
+    const vx = (Math.random() < 0.5 ? 1 : -1) * (SIZES.large.speedX + (level - 1) * 0.08);
+    const vy = -(SIZES.large.speedY + (level - 1) * 0.06);
     planets.push(new Planet(x, H * 0.3, 'large', vx, vy));
   }
 
   for (let i = 0; i < numMedium; i++) {
     const x  = W * 0.2 + Math.random() * W * 0.6;
-    const vx = (Math.random() < 0.5 ? 1 : -1) * (SIZES.medium.speedX + (level - 1) * 0.12);
-    const vy = -(SIZES.medium.speedY + (level - 1) * 0.1);
+    const vx = (Math.random() < 0.5 ? 1 : -1) * (SIZES.medium.speedX + (level - 1) * 0.07);
+    const vy = -(SIZES.medium.speedY + (level - 1) * 0.06);
     planets.push(new Planet(x, H * 0.35, 'medium', vx, vy));
   }
 }
@@ -327,6 +331,8 @@ class Planet {
     this.rot  = Math.random() * Math.PI * 2;
     this.rotV = (Math.random() - 0.5) * 0.04;
     this.pulse = Math.random() * Math.PI * 2;
+    this.comboLevel    = 0;     // combo chain depth (0 = spawned, 1+ = split-born)
+    this.touchedGround = false; // true once planet bounces off floor
   }
 
   update(dt) {
@@ -350,6 +356,8 @@ class Planet {
       this.y  = floor - this.r;
       this.vy = -Math.abs(this.vy);
       if (Math.abs(this.vy) < 2.5) this.vy = -2.5;
+      this.touchedGround = true;
+      this.comboLevel    = 0;   // combo chain broken on ground touch
     }
   }
 
@@ -358,12 +366,14 @@ class Planet {
     if (!cfg.next) return [];
     const ns  = cfg.next;
     const nc  = SIZES[ns];
-    const spX = nc.speedX + (level - 1) * 0.12;
-    const spY = nc.speedY + (level - 1) * 0.10;
-    return [
-      new Planet(this.x, this.y, ns, -spX, -spY * 1.4, this.pi),
-      new Planet(this.x, this.y, ns,  spX, -spY * 1.4, this.pi)
-    ];
+    const spX = nc.speedX + (level - 1) * 0.07;
+    const spY = nc.speedY + (level - 1) * 0.06;
+    const childCombo = this.comboLevel + 1;
+    const p1 = new Planet(this.x, this.y, ns, -spX, -spY * 1.4, this.pi);
+    const p2 = new Planet(this.x, this.y, ns,  spX, -spY * 1.4, this.pi);
+    p1.comboLevel = childCombo;
+    p2.comboLevel = childCombo;
+    return [p1, p2];
   }
 
   draw(ctx) {
@@ -527,7 +537,7 @@ function pickPowerUpType() {
 }
 
 function maybeSpawnPowerUp(x, y) {
-  if (Math.random() > POWERUP_DROP_CHANCE) return;
+  if (Math.random() > getDropChance()) return;
   powerUpDrops.push(new PowerUp(x, y, pickPowerUpType()));
 }
 
@@ -638,7 +648,16 @@ function checkLasers() {
       const children = best.split();
       planets = planets.filter(p => p !== best);
       planets.push(...children);
-      score += SIZES[best.size].score;
+
+      // Combo scoring
+      let pts = SIZES[best.size].score;
+      if (best.comboLevel > 0 && !best.touchedGround) {
+        const comboMult = best.comboLevel + 1;
+        pts *= comboMult;
+        showFloatingText('COMBO x' + comboMult + '!', '#f0c040');
+      }
+      score += pts;
+
       lasers.splice(li, 1);
       flashTimer = 6;
       updateHUD();
@@ -665,7 +684,15 @@ function checkRocket() {
         const children = p.split();
         planets = planets.filter(q => q !== p);
         planets.push(...children);
-        score += SIZES[p.size].score;
+
+        // Combo scoring (shield hit)
+        let pts = SIZES[p.size].score;
+        if (p.comboLevel > 0 && !p.touchedGround) {
+          const comboMult = p.comboLevel + 1;
+          pts *= comboMult;
+          showFloatingText('COMBO x' + comboMult + '!', '#f0c040');
+        }
+        score += pts;
         flashTimer = 6;
         updateHUD();
         return;
